@@ -92,6 +92,8 @@ API, called directly from your browser.
     hourly history); after that, switching between months is instant since
     it's cached until you change your home location, classes, or stops.
 
+## How to run it
+https://agnivsarkar1124.github.io/walk-forecast
 ## How to run it locally
 
 You need a local web server (not just double-clicking the HTML file) so the

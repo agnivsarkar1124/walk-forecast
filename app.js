@@ -212,7 +212,7 @@ function cancelStopEdit() {
 // addresses, in degrees (~0.05 deg ≈ 3.5 miles at most US latitudes — wide
 // enough to cover any real campus + surrounding student housing, narrow
 // enough that a search for "Gym" doesn't return a result in a different city).
-const CAMPUS_SEARCH_RADIUS_DEG = 0.05;
+const CAMPUS_SEARCH_RADIUS_DEG = 0.03; // ~2 miles at most US latitudes — covers campus + immediately adjacent student housing/off-campus spots
 
 function campusViewbox(uni) {
   if (!uni) return null;
@@ -234,7 +234,10 @@ async function geocodeAddress(query, { bias = null } = {}) {
   if (!trimmed) throw new Error('Enter an address or place name first.');
 
   const params = new URLSearchParams({ format: 'json', limit: '1', q: trimmed });
-  if (bias) params.set('viewbox', bias);
+  if (bias) {
+    params.set('viewbox', bias);
+    params.set('bounded', '1'); // without this, viewbox only nudges ranking — it doesn't actually restrict results to the box
+  }
 
   const url = 'https://nominatim.openstreetmap.org/search?' + params.toString();
 
@@ -260,7 +263,10 @@ async function geocodeAddress(query, { bias = null } = {}) {
 
   const results = await res.json();
   if (!Array.isArray(results) || results.length === 0) {
-    throw new Error(`Couldn't find "${trimmed}" — try being more specific or adding a nearby cross-street.`);
+    const hint = bias
+      ? `Couldn't find "${trimmed}" within ~2 miles of your campus — try the full street address instead of a brand/marketing name (some apartment complexes aren't indexed by their name).`
+      : `Couldn't find "${trimmed}" — try being more specific or adding a nearby cross-street.`;
+    throw new Error(hint);
   }
   const best = results[0];
   return { lat: parseFloat(best.lat), lon: parseFloat(best.lon), displayName: best.display_name };

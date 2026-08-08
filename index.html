@@ -20,6 +20,17 @@
 
     <!-- SETUP COLUMN -->
     <section class="panel setup">
+      <h2><span class="num">00</span> Your university</h2>
+      <div class="field-row">
+        <label class="grow">
+          University name
+          <input type="text" id="university-name" placeholder="e.g. University of Texas at Austin" />
+        </label>
+        <button type="button" id="university-lookup" class="btn-add">Set university</button>
+      </div>
+      <p class="hint">This sets the search area for everything else — no need to re-type your city on every address.</p>
+      <p id="university-resolved" class="hint" style="display:none;"></p>
+
       <h2><span class="num">01</span> Where you sleep</h2>
       <div class="field-row">
         <label>
@@ -32,7 +43,7 @@
         </label>
         <button type="button" id="home-lookup" class="btn-add">Find location</button>
       </div>
-      <p class="hint">Type an address, dorm name, or place — we'll look up the coordinates for you.</p>
+      <p class="hint">Just the name is usually enough — we'll search near your campus automatically.</p>
       <p id="home-resolved" class="hint" style="display:none;"></p>
 
       <h2><span class="num">02</span> Your classes</h2>

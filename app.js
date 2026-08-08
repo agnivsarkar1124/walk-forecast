@@ -4,13 +4,14 @@ const STORAGE_KEY = 'walkForecastState_v1';
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { home: null, classes: [], stops: [], ratings: [] };
+    if (!raw) return { university: null, home: null, classes: [], stops: [], ratings: [] };
     const parsed = JSON.parse(raw);
     if (!parsed.stops) parsed.stops = []; // backward-compat for saves made before stops existed
     if (!parsed.ratings) parsed.ratings = []; // backward-compat for saves made before personal ratings existed
+    if (parsed.university === undefined) parsed.university = null; // backward-compat for saves made before university existed
     return parsed;
   } catch (e) {
-    return { home: null, classes: [], stops: [], ratings: [] };
+    return { university: null, home: null, classes: [], stops: [], ratings: [] };
   }
 }
 
@@ -39,6 +40,9 @@ function retrainPersonalNet() {
 
 
 // ---------- DOM refs ----------
+const universityNameEl = document.getElementById('university-name');
+const universityLookupBtn = document.getElementById('university-lookup');
+const universityResolvedEl = document.getElementById('university-resolved');
 const homeLabelEl = document.getElementById('home-label');
 const homeAddressEl = document.getElementById('home-address');
 const homeLookupBtn = document.getElementById('home-lookup');
@@ -54,6 +58,11 @@ const legendEl = document.getElementById('legend');
 
 // ---------- Init from saved state ----------
 function initFromState() {
+  if (state.university) {
+    universityNameEl.value = state.university.name || '';
+    universityResolvedEl.textContent = `Set to: ${state.university.displayName || state.university.name}`;
+    universityResolvedEl.style.display = '';
+  }
   if (state.home) {
     homeLabelEl.value = state.home.label || 'Home';
     homeAddressEl.value = state.home.address || '';
@@ -197,34 +206,37 @@ function cancelStopEdit() {
   document.getElementById('s-cancel').style.display = 'none';
 }
 
-// ---------- Home location persistence on input ----------
-const UNIVERSITY_PROXIMITY_METERS = 3200; // ~2 miles — generous walking-adjacent radius
+// ---------- University & location lookups ----------
 
-// Checks whether a coordinate sits near a university campus, using OpenStreetMap's
-// free Overpass API (no key needed). This keeps the app scoped to its actual
-// purpose — campus walking — rather than becoming a generic "check climate
-// anywhere" tool, which is a different (and unintended) use case.
-async function checkNearUniversity(lat, lon) {
-  const query = `[out:json][timeout:15];(node["amenity"="university"](around:${UNIVERSITY_PROXIMITY_METERS},${lat},${lon});way["amenity"="university"](around:${UNIVERSITY_PROXIMITY_METERS},${lat},${lon});relation["amenity"="university"](around:${UNIVERSITY_PROXIMITY_METERS},${lat},${lon}););out center 1;`;
-  const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('University proximity check failed: ' + res.status);
-  const data = await res.json();
-  return Array.isArray(data.elements) && data.elements.length > 0;
+// How far around the university's center to search for home/class/stop
+// addresses, in degrees (~0.05 deg ≈ 3.5 miles at most US latitudes — wide
+// enough to cover any real campus + surrounding student housing, narrow
+// enough that a search for "Gym" doesn't return a result in a different city).
+const CAMPUS_SEARCH_RADIUS_DEG = 0.05;
+
+function campusViewbox(uni) {
+  if (!uni) return null;
+  const left = uni.lon - CAMPUS_SEARCH_RADIUS_DEG;
+  const right = uni.lon + CAMPUS_SEARCH_RADIUS_DEG;
+  const top = uni.lat + CAMPUS_SEARCH_RADIUS_DEG;
+  const bottom = uni.lat - CAMPUS_SEARCH_RADIUS_DEG;
+  return `${left},${top},${right},${bottom}`;
 }
 
 // Geocodes a free-text address/place name into { lat, lon, displayName } using
-// OpenStreetMap's Nominatim API (free, no API key). This is what lets users
-// type "Jester West" or a street address instead of hunting down raw
-// coordinates on Google Maps. Nominatim asks that requests identify the
-// application via a custom header, which fetch() can't set for simple
-// cross-origin requests — so we rely on the query string alone, keep request
-// volume low (one lookup per user action, not per keystroke), and never
-// auto-fire on every input change.
-async function geocodeAddress(query) {
+// OpenStreetMap's Nominatim API (free, no API key). If a university has
+// already been set, results are biased (not strictly limited — `bounded` is
+// intentionally left off) to that campus's area, so a short query like "Gym"
+// or "Jester West" resolves to the right one instead of a same-named place
+// somewhere else in the world.
+async function geocodeAddress(query, { bias = null } = {}) {
   const trimmed = query.trim();
   if (!trimmed) throw new Error('Enter an address or place name first.');
-  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(trimmed);
+
+  const params = new URLSearchParams({ format: 'json', limit: '1', q: trimmed });
+  if (bias) params.set('viewbox', bias);
+
+  const url = 'https://nominatim.openstreetmap.org/search?' + params.toString();
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout so a stuck request fails loudly instead of hanging forever
@@ -248,32 +260,50 @@ async function geocodeAddress(query) {
 
   const results = await res.json();
   if (!Array.isArray(results) || results.length === 0) {
-    throw new Error(`Couldn't find "${trimmed}" — try adding a city or being more specific.`);
+    throw new Error(`Couldn't find "${trimmed}" — try being more specific or adding a nearby cross-street.`);
   }
   const best = results[0];
   return { lat: parseFloat(best.lat), lon: parseFloat(best.lon), displayName: best.display_name };
 }
 
-// Attempts to set home: geocodes the typed address, then runs it through the
-// existing university-proximity check before writing to state/localStorage.
-// Keeps the two concerns separate (geocoding can fail for "address not
-// found" reasons, the university check fails for "found it, but it's not
-// near a campus" reasons) so the status message can be specific about which
-// one actually happened.
+// Sets the university: geocodes its name once, and everything else (home,
+// classes, stops) searches within a bounding box around it from then on.
+// This replaces the old "check if a coordinate is near ANY university"
+// Overpass lookup — that check ran on every single address, was slow, and
+// still couldn't scope searches to the right campus. Geocoding the
+// university once up front is simpler and lets every later search actually
+// stay local instead of just being validated after the fact.
+async function trySetUniversity(name) {
+  setStatus('Looking up your university…', null);
+  universityLookupBtn.disabled = true;
+  let geocoded;
+  try {
+    geocoded = await geocodeAddress(name);
+  } catch (err) {
+    setStatus('⚠ ' + err.message, 'error');
+    return false;
+  } finally {
+    universityLookupBtn.disabled = false;
+  }
+
+  state.university = { name, lat: geocoded.lat, lon: geocoded.lon, displayName: geocoded.displayName };
+  saveState();
+  universityResolvedEl.textContent = `Set to: ${geocoded.displayName}`;
+  universityResolvedEl.style.display = '';
+  setStatus('University set — addresses will now search near campus.', 'ok');
+  return true;
+}
+
+// Attempts to set home: geocodes the typed address, biased to the campus
+// area if a university has been set. No proximity check needed anymore —
+// the viewbox bias on the search itself does that work.
 async function trySetHome(address, label) {
   setStatus('Looking up that address…', null);
   let geocoded;
   try {
-    geocoded = await geocodeAddress(address);
+    geocoded = await geocodeAddress(address, { bias: campusViewbox(state.university) });
   } catch (err) {
     setStatus('⚠ ' + err.message, 'error');
-    return false;
-  }
-
-  setStatus('Checking that this is near a university campus…', null);
-  const nearUni = await checkNearUniversity(geocoded.lat, geocoded.lon);
-  if (!nearUni) {
-    setStatus(`⚠ "${geocoded.displayName}" doesn't look like it's within ~2 miles of a university campus — location not saved.`, 'error');
     return false;
   }
 
@@ -291,6 +321,15 @@ async function trySetHome(address, label) {
   setStatus('Home location saved.', 'ok');
   return true;
 }
+
+universityLookupBtn.addEventListener('click', async () => {
+  const name = universityNameEl.value;
+  if (!name.trim()) {
+    setStatus('Enter your university name first.', 'error');
+    return;
+  }
+  await trySetUniversity(name);
+});
 
 let homeVerificationInFlight = null; // tracks an in-progress check so other callers can wait for it instead of racing it
 
@@ -338,7 +377,7 @@ classForm.addEventListener('submit', async (e) => {
   classSubmitBtn.disabled = true;
   let geocoded;
   try {
-    geocoded = await geocodeAddress(address);
+    geocoded = await geocodeAddress(address, { bias: campusViewbox(state.university) });
   } catch (err) {
     setStatus('⚠ ' + err.message, 'error');
     return;
@@ -387,7 +426,7 @@ stopForm.addEventListener('submit', async (e) => {
   stopSubmitBtn.disabled = true;
   let geocoded;
   try {
-    geocoded = await geocodeAddress(address);
+    geocoded = await geocodeAddress(address, { bias: campusViewbox(state.university) });
   } catch (err) {
     setStatus('⚠ ' + err.message, 'error');
     return;

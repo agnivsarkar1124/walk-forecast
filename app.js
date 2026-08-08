@@ -225,8 +225,27 @@ async function geocodeAddress(query) {
   const trimmed = query.trim();
   if (!trimmed) throw new Error('Enter an address or place name first.');
   const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(trimmed);
-  const res = await fetch(url);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout so a stuck request fails loudly instead of hanging forever
+
+  let res;
+  try {
+    res = await fetch(url, { signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Address lookup timed out after 10s — Nominatim may be rate-limiting rapid requests. Wait a few seconds and try again.');
+    }
+    throw new Error('Address lookup failed (network error): ' + err.message);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (res.status === 429 || res.status === 403) {
+    throw new Error('Rate-limited by the address lookup service — wait a few seconds before trying again.');
+  }
   if (!res.ok) throw new Error('Address lookup failed: ' + res.status);
+
   const results = await res.json();
   if (!Array.isArray(results) || results.length === 0) {
     throw new Error(`Couldn't find "${trimmed}" — try adding a city or being more specific.`);
@@ -281,13 +300,17 @@ homeLookupBtn.addEventListener('click', async () => {
     setStatus('Enter an address or place name first.', 'error');
     return;
   }
+  homeLookupBtn.disabled = true;
   homeVerificationInFlight = trySetHome(address, homeLabelEl.value)
     .catch(err => {
       console.error('Home lookup failed:', err);
       setStatus('Could not look up that address (network issue) — try again. (' + err.message + ')', 'error');
       return false;
     })
-    .finally(() => { homeVerificationInFlight = null; });
+    .finally(() => {
+      homeVerificationInFlight = null;
+      homeLookupBtn.disabled = false;
+    });
   await homeVerificationInFlight;
 });
 
@@ -311,12 +334,16 @@ classForm.addEventListener('submit', async (e) => {
   }
 
   setStatus('Looking up that address…', null);
+  const classSubmitBtn = document.getElementById('c-submit');
+  classSubmitBtn.disabled = true;
   let geocoded;
   try {
     geocoded = await geocodeAddress(address);
   } catch (err) {
     setStatus('⚠ ' + err.message, 'error');
     return;
+  } finally {
+    classSubmitBtn.disabled = false;
   }
   const { lat, lon } = geocoded;
 
@@ -356,12 +383,16 @@ stopForm.addEventListener('submit', async (e) => {
   }
 
   setStatus('Looking up that address…', null);
+  const stopSubmitBtn = document.getElementById('s-submit');
+  stopSubmitBtn.disabled = true;
   let geocoded;
   try {
     geocoded = await geocodeAddress(address);
   } catch (err) {
     setStatus('⚠ ' + err.message, 'error');
     return;
+  } finally {
+    stopSubmitBtn.disabled = false;
   }
   const { lat, lon } = geocoded;
 

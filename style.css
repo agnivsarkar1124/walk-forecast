@@ -486,7 +486,136 @@ input:focus, select:focus, button:focus {
   }
 }
 
-/* ---------- Invalid distance flag ---------- */
+/* ---------- Weekly summary chart ---------- */
+.week-chart-wrap {
+  background: #0d1117;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 16px 16px 8px;
+  margin-bottom: 20px;
+}
+
+.week-chart-title {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.week-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.chart-grid {
+  stroke: var(--panel-border);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--text-dim);
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-value {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 11px;
+  fill: var(--text);
+}
+
+.chart-label {
+  font-family: var(--sans);
+  font-size: 10px;
+  fill: var(--text-dim);
+}
+
+.chart-sub {
+  font-family: var(--mono);
+  font-size: 9px;
+  fill: var(--text-dim);
+}
+
+/* ---------- Route preview strip ---------- */
+.route-strip {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px 4px;
+  overflow-x: auto;
+}
+
+.route-strip-step {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.route-strip-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+  animation: popIn 0.3s ease backwards;
+}
+
+.route-strip-step:nth-child(1) .route-strip-icon { animation-delay: 0.02s; }
+.route-strip-step:nth-child(2) .route-strip-icon { animation-delay: 0.08s; }
+.route-strip-step:nth-child(3) .route-strip-icon { animation-delay: 0.14s; }
+.route-strip-step:nth-child(4) .route-strip-icon { animation-delay: 0.20s; }
+.route-strip-step:nth-child(5) .route-strip-icon { animation-delay: 0.26s; }
+.route-strip-step:nth-child(6) .route-strip-icon { animation-delay: 0.32s; }
+
+.route-strip-connector {
+  width: 20px;
+  height: 2px;
+  background: var(--panel-border);
+  flex-shrink: 0;
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.4); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+/* ---------- Day-card entrance ---------- */
+.day-card {
+  animation: cardIn 0.35s ease backwards;
+}
+
+.day-card:nth-of-type(1) { animation-delay: 0.03s; }
+.day-card:nth-of-type(2) { animation-delay: 0.08s; }
+.day-card:nth-of-type(3) { animation-delay: 0.13s; }
+.day-card:nth-of-type(4) { animation-delay: 0.18s; }
+.day-card:nth-of-type(5) { animation-delay: 0.23s; }
+.day-card:nth-of-type(6) { animation-delay: 0.28s; }
+.day-card:nth-of-type(7) { animation-delay: 0.33s; }
+
+@keyframes cardIn {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-strip-icon,
+  .day-card {
+    animation: none;
+  }
+}
 .leg-invalid {
   background: rgba(230, 67, 47, 0.06);
   border-left: 3px solid #e6432f;

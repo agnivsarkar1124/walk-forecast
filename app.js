@@ -1288,6 +1288,7 @@ function renderClimateSnapshot(monthLabel, points) {
               ${p.comfortScore} · ${comfortLabel(p.comfortScore)}
             </div>
           </div>
+          ${buildRatingExtras(p)}
         </div>
       `).join('')}
     </div>
@@ -1386,11 +1387,11 @@ async function switchTab(tabKey) {
       setStatus(`Typical ${MONTH_NAMES[monthIndex0]} climate loaded (5-yr average). Add classes/stops for a full weekly view.`, 'ok');
     } else if (useLocations) {
       const days = buildClimatologyWeek(monthIndex0, profiles, pace, buffer);
-      renderResults(days, `No classes fall on a weekday in ${MONTH_NAMES[monthIndex0]}.`);
+      renderResults(days, `No classes fall on a weekday in ${MONTH_NAMES[monthIndex0]}.`, { allowRating: true });
       setStatus(`Typical ${MONTH_NAMES[monthIndex0]} week generated (5-yr average, using walking distances).`, 'ok');
     } else {
       const days = buildClimatologyTimesOnly(monthIndex0, profiles);
-      renderResults(days, `No classes fall on a weekday in ${MONTH_NAMES[monthIndex0]}.`);
+      renderResults(days, `No classes fall on a weekday in ${MONTH_NAMES[monthIndex0]}.`, { allowRating: true });
       setStatus(`Typical ${MONTH_NAMES[monthIndex0]} week generated (5-yr average, times only — no locations used).`, 'ok');
     }
   } catch (err) {
@@ -1693,6 +1694,98 @@ function buildWeatherFX(type) {
   return '';
 }
 
+// Small icon per weather severity, used in the route-preview strip. Kept to
+// a tiny fixed set (not full weather-code coverage) since this is a glance
+// element, not the detailed view below it.
+function iconForLeg(leg) {
+  if (leg.fxType === 'storm') return '⛈';
+  if (leg.fxType === 'snow') return '❄';
+  if (leg.fxType === 'rain') return '🌧';
+  if (leg.feelsLike >= 90) return '🔥';
+  if (leg.feelsLike < 37) return '🥶';
+  return '☀';
+}
+
+// Builds a horizontal "route preview" strip for one day: a small icon per
+// leg in walking order, connected by a line, giving an at-a-glance sense of
+// how the day's walk sequence actually feels — distinct from the detailed
+// cards below, which are read one at a time rather than scanned as a whole.
+function buildRouteStrip(day) {
+  if (day.legs.length < 2) return ''; // not enough legs for a "sequence" to be meaningful
+  return `
+    <div class="route-strip">
+      ${day.legs.map((leg, i) => `
+        <div class="route-strip-step">
+          <div class="route-strip-icon" style="background:${comfortColor(leg.comfortScore)};" title="${escapeHtml(leg.to || leg.from)}: ${Math.round(leg.feelsLike)}°F feels-like">${iconForLeg(leg)}</div>
+          ${i < day.legs.length - 1 ? '<div class="route-strip-connector"></div>' : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// Builds a compact "week at a glance" SVG: a comfort-score line across the
+// days shown, plus a min/max feels-like temperature band per day. Reuses the
+// same color functions as the detailed cards below so the whole page reads
+// as one consistent visual language, not a bolted-on chart library look.
+function buildWeekSummaryChart(days) {
+  if (!days.length) return '';
+
+  const dayStats = days.map(day => {
+    const legs = day.legs;
+    if (!legs.length) return { label: day.label, avgComfort: null, minFeels: null, maxFeels: null };
+    const comforts = legs.map(l => l.comfortScore);
+    const feelsVals = legs.map(l => l.feelsLike);
+    return {
+      label: day.label,
+      avgComfort: Math.round(comforts.reduce((a, b) => a + b, 0) / comforts.length),
+      minFeels: Math.round(Math.min(...feelsVals)),
+      maxFeels: Math.round(Math.max(...feelsVals)),
+    };
+  });
+
+  const validStats = dayStats.filter(d => d.avgComfort != null);
+  if (validStats.length < 2) return ''; // not enough spread to make a chart worthwhile
+
+  const W = 640, H = 160, padL = 34, padR = 16, padT = 16, padB = 28;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = dayStats.length;
+  const xFor = (i) => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+  const yFor = (score) => padT + plotH - (score / 100) * plotH;
+
+  const linePoints = dayStats
+    .map((d, i) => d.avgComfort == null ? null : `${xFor(i)},${yFor(d.avgComfort)}`)
+    .filter(Boolean)
+    .join(' ');
+
+  const dots = dayStats.map((d, i) => {
+    if (d.avgComfort == null) return '';
+    const x = xFor(i), y = yFor(d.avgComfort);
+    const color = comfortColor(d.avgComfort);
+    return `
+      <circle cx="${x}" cy="${y}" r="5" fill="${color}" stroke="#0d1117" stroke-width="1.5" />
+      <text x="${x}" y="${y - 12}" text-anchor="middle" class="chart-value">${d.avgComfort}</text>
+      <text x="${x}" y="${H - 8}" text-anchor="middle" class="chart-label">${escapeHtml(d.label.split(',')[0] || d.label)}</text>
+      ${d.minFeels != null ? `<text x="${x}" y="${H - padB + 18}" text-anchor="middle" class="chart-sub">${d.minFeels}–${d.maxFeels}°F</text>` : ''}
+    `;
+  }).join('');
+
+  const gridLines = [0, 25, 50, 75, 100].map(score => `
+    <line x1="${padL}" y1="${yFor(score)}" x2="${W - padR}" y2="${yFor(score)}" class="chart-grid" />
+    <text x="${padL - 8}" y="${yFor(score) + 4}" text-anchor="end" class="chart-axis">${score}</text>
+  `).join('');
+
+  return `
+    <div class="week-chart-wrap">
+      <div class="week-chart-title">Comfort at a glance</div>
+      <svg viewBox="0 0 ${W} ${H}" class="week-chart" preserveAspectRatio="xMidYMid meet">
+        ${gridLines}
+        <polyline points="${linePoints}" class="chart-line" />
+        ${dots}
+      </svg>
+    </div>
+  `;
+}
 function renderResults(days, emptyMessage, options = {}) {
   const allowRating = !!options.allowRating;
 
@@ -1701,9 +1794,10 @@ function renderResults(days, emptyMessage, options = {}) {
     return;
   }
 
-  resultsOutput.innerHTML = days.map(day => `
+  resultsOutput.innerHTML = buildWeekSummaryChart(days) + days.map(day => `
     <div class="day-card">
       <h3><span class="date-label">${escapeHtml(day.label)}</span>${day.totalMiles != null ? `<span class="day-total">${day.totalMiles.toFixed(2)} mi total</span>` : ''}</h3>
+      ${buildRouteStrip(day)}
       ${day.legs.map(leg => `
         <div class="leg ${leg.invalid ? 'leg-invalid' : ''}">
           ${buildWeatherFX(leg.fxType)}

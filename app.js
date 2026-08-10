@@ -1786,6 +1786,174 @@ function buildWeekSummaryChart(days) {
     </div>
   `;
 }
+// ---------- Day story viewer: animated, one-day-at-a-time experience ----------
+
+// Tracks which day and which leg within that day the story viewer is
+// currently showing. Reset every time renderResults builds a fresh set of
+// days (a new tab, a new generate click, etc.)
+let storyState = { days: [], dayIndex: 0, legIndex: 0 };
+
+/** Picks a scene type for a leg: matches its weather-fx type first, falls back to temperature bands. */
+function sceneTypeForLeg(leg) {
+  if (leg.fxType === 'storm') return 'storm';
+  if (leg.fxType === 'snow') return 'snow';
+  if (leg.fxType === 'rain') return 'rain';
+  if (leg.feelsLike >= 90) return 'hot';
+  if (leg.feelsLike < 37) return 'cold';
+  return 'clear';
+}
+
+/** Builds the animated scene markup for one leg, sized for the big story stage. */
+function buildStoryScene(leg) {
+  const type = sceneTypeForLeg(leg);
+
+  if (type === 'rain' || type === 'storm') {
+    const dropCount = type === 'storm' ? 40 : 26;
+    const drops = Array.from({ length: dropCount }).map(() => {
+      const left = (Math.random() * 100).toFixed(1);
+      const duration = (0.6 + Math.random() * 0.5).toFixed(2);
+      const delay = (Math.random() * 2).toFixed(2);
+      return `<div class="story-drop" style="left:${left}%; animation-duration:${duration}s; animation-delay:${delay}s;"></div>`;
+    }).join('');
+    const flash = type === 'storm' ? `<div class="story-flash"></div>` : '';
+    return `<div class="story-scene story-scene-${type}">${drops}${flash}</div>`;
+  }
+
+  if (type === 'snow') {
+    const flakes = Array.from({ length: 30 }).map(() => {
+      const left = (Math.random() * 100).toFixed(1);
+      const size = (3 + Math.random() * 4).toFixed(1);
+      const duration = (3 + Math.random() * 3).toFixed(2);
+      const delay = (Math.random() * 4).toFixed(2);
+      return `<div class="story-flake" style="left:${left}%; width:${size}px; height:${size}px; animation-duration:${duration}s; animation-delay:${delay}s;"></div>`;
+    }).join('');
+    return `<div class="story-scene story-scene-snow">${flakes}</div>`;
+  }
+
+  if (type === 'hot') {
+    return `
+      <div class="story-scene story-scene-hot">
+        <div class="story-sun story-sun-hot"></div>
+        <div class="story-shimmer"></div>
+      </div>
+    `;
+  }
+
+  if (type === 'cold') {
+    const particles = Array.from({ length: 22 }).map(() => {
+      const left = (Math.random() * 100).toFixed(1);
+      const duration = (4 + Math.random() * 3).toFixed(2);
+      const delay = (Math.random() * 4).toFixed(2);
+      return `<div class="story-frost" style="left:${left}%; animation-duration:${duration}s; animation-delay:${delay}s;"></div>`;
+    }).join('');
+    return `<div class="story-scene story-scene-cold">${particles}</div>`;
+  }
+
+  // clear / default
+  return `
+    <div class="story-scene story-scene-clear">
+      <div class="story-sun">
+        <div class="story-sun-rays"></div>
+      </div>
+    </div>
+  `;
+}
+
+/** Renders the full story viewer (current day's stage + nav controls) into its container. */
+function renderStoryViewer() {
+  const container = document.getElementById('story-viewer');
+  if (!container) return;
+
+  const { days, dayIndex, legIndex } = storyState;
+  if (!days.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const day = days[dayIndex];
+  const legs = day.legs;
+  const leg = legs[Math.min(legIndex, legs.length - 1)];
+
+  container.innerHTML = `
+    <div class="story-viewer">
+      <div class="story-day-label">
+        <span>${escapeHtml(day.label)}</span>
+        <span class="story-day-count">Day ${dayIndex + 1} of ${days.length}</span>
+      </div>
+
+      <div class="story-stage-wrap">
+        <button class="story-leg-nav story-leg-prev" ${legIndex === 0 ? 'disabled' : ''} aria-label="Previous time">&#8249;</button>
+        ${buildStoryScene(leg)}
+        <button class="story-leg-nav story-leg-next" ${legIndex === legs.length - 1 ? 'disabled' : ''} aria-label="Next time">&#8250;</button>
+
+        <div class="story-info">
+          <div class="story-time">${leg.departMin != null ? minutesToTimeLabel(leg.departMin) : ''}</div>
+          <div class="story-route">${escapeHtml(leg.from || '')}${leg.to ? ' &rarr; ' + escapeHtml(leg.to) : ''}</div>
+          <div class="story-temp">${Math.round(leg.feelsLike)}&deg;F feels like</div>
+        </div>
+      </div>
+
+      <div class="story-leg-dots">
+        ${legs.map((_, i) => `<span class="story-dot ${i === legIndex ? 'active' : ''}"></span>`).join('')}
+      </div>
+
+      <div class="story-day-nav">
+        <button class="btn-cancel story-day-prev" ${dayIndex === 0 ? 'disabled' : ''}>&#8592; Previous day</button>
+        <button class="btn-add story-day-next" ${dayIndex === days.length - 1 ? 'disabled' : ''}>Next day &#8594;</button>
+      </div>
+    </div>
+  `;
+}
+
+/** Advances/retreats the leg (time) index within the current day. */
+function storyStepLeg(delta) {
+  const day = storyState.days[storyState.dayIndex];
+  if (!day) return;
+  const max = day.legs.length - 1;
+  const next = storyState.legIndex + delta;
+  if (next < 0 || next > max) return;
+  storyState.legIndex = next;
+  renderStoryViewer();
+}
+
+/** Fades out the current day, switches to the next/previous day, fades back in. */
+function storyStepDay(delta) {
+  const next = storyState.dayIndex + delta;
+  if (next < 0 || next >= storyState.days.length) return;
+
+  const container = document.getElementById('story-viewer');
+  const viewerEl = container ? container.querySelector('.story-viewer') : null;
+
+  const applySwitch = () => {
+    storyState.dayIndex = next;
+    storyState.legIndex = 0;
+    renderStoryViewer();
+    const freshEl = container ? container.querySelector('.story-viewer') : null;
+    if (freshEl) freshEl.classList.add('story-fade-in');
+  };
+
+  if (viewerEl && !prefersReducedMotion()) {
+    viewerEl.classList.add('story-fade-out');
+    setTimeout(applySwitch, 220);
+  } else {
+    applySwitch();
+  }
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Event delegation: one listener on the results output handles all story
+// viewer nav clicks, so it keeps working even though renderStoryViewer()
+// rebuilds the buttons' innerHTML on every step.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.story-leg-prev')) storyStepLeg(-1);
+  else if (e.target.closest('.story-leg-next')) storyStepLeg(1);
+  else if (e.target.closest('.story-day-prev')) storyStepDay(-1);
+  else if (e.target.closest('.story-day-next')) storyStepDay(1);
+});
+
 function renderResults(days, emptyMessage, options = {}) {
   const allowRating = !!options.allowRating;
 
@@ -1794,7 +1962,9 @@ function renderResults(days, emptyMessage, options = {}) {
     return;
   }
 
-  resultsOutput.innerHTML = buildWeekSummaryChart(days) + days.map(day => `
+  storyState = { days, dayIndex: 0, legIndex: 0 };
+
+  resultsOutput.innerHTML = `<div id="story-viewer"></div>` + buildWeekSummaryChart(days) + days.map(day => `
     <div class="day-card">
       <h3><span class="date-label">${escapeHtml(day.label)}</span>${day.totalMiles != null ? `<span class="day-total">${day.totalMiles.toFixed(2)} mi total</span>` : ''}</h3>
       ${buildRouteStrip(day)}
@@ -1834,6 +2004,8 @@ function renderResults(days, emptyMessage, options = {}) {
       `).join('')}
     </div>
   `).join('');
+
+  renderStoryViewer();
 }
 
 // ---------- Boot ----------

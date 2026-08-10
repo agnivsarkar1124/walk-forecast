@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Walk Forecast — Campus Schedule Planner</title>
 <link rel="stylesheet" href="style.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 </head>
 <body>
 
@@ -151,6 +152,7 @@
         Use class/stop locations &amp; walking distances (uncheck to ignore coordinates and just use scheduled times against home's climate)
       </label>
       <div id="preference-summary" class="preference-summary" style="display:none;"></div>
+      <div id="location-map" class="location-map"></div>
       <div id="legend" class="legend"></div>
       <div id="results-output" class="results-output">
         <p class="empty-state">Add your home location and at least one class, then generate the forecast. Results will appear here, one card per day, color-coded by temperature at the time you'd actually be walking.</p>
@@ -163,6 +165,7 @@
     Weather data: Open-Meteo (no API key required). Distances: straight-line, not routed — treat times as estimates.
   </footer>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -1213,7 +1213,8 @@ generateBtn.addEventListener('click', async () => {
     const forecasts = await Promise.all(entries.map(([, loc]) => fetchHourlyForecast(loc.lat, loc.lon)));
     const forecastByKey = new Map(entries.map(([key], i) => [key, forecasts[i]]));
 
-    const days = buildSevenDayPlan(forecastByKey, pace, buffer);
+    setStatus(`Calculating real walking routes for ${uniqueLocs.size} location${uniqueLocs.size > 1 ? 's' : ''}…`, null);
+    const days = await buildSevenDayPlan(forecastByKey, pace, buffer);
     lastLiveDays = days;
     switchTab('week');
     setStatus('Forecast generated.', 'ok');
@@ -1391,7 +1392,7 @@ async function switchTab(tabKey) {
       renderClimateSnapshot(MONTH_NAMES[monthIndex0], points);
       setStatus(`Typical ${MONTH_NAMES[monthIndex0]} climate loaded (5-yr average). Add classes/stops for a full weekly view.`, 'ok');
     } else if (useLocations) {
-      const days = buildClimatologyWeek(monthIndex0, profiles, pace, buffer);
+      const days = await buildClimatologyWeek(monthIndex0, profiles, pace, buffer);
       renderResults(days, `No classes fall on a weekday in ${MONTH_NAMES[monthIndex0]}.`, { allowRating: true });
       setStatus(`Typical ${MONTH_NAMES[monthIndex0]} week generated (5-yr average, using walking distances).`, 'ok');
     } else {
@@ -1444,14 +1445,15 @@ const INVALID_WALK_MINUTES = 40; // beyond this, treat the leg as a data-entry e
 // Builds one day's full walking sequence (home -> item -> item -> ... -> home) and its legs.
 // `getHourlyForKey(key)` abstracts away WHERE the weather data comes from — a live forecast
 // lookup for the 7-day view, or a climatology profile lookup for the monthly outlook.
-function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin) {
+async function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin) {
   const homeKey = locKey(state.home.lat, state.home.lon);
   const homeHourly = getHourlyForKey(homeKey);
   const legs = [];
   let prevLoc = { name: state.home.label, lat: state.home.lat, lon: state.home.lon, key: homeKey };
 
-  todaysItems.forEach((cls) => {
-    const distMiles = haversineMiles(prevLoc.lat, prevLoc.lon, cls.lat, cls.lon);
+  for (const cls of todaysItems) {
+    const route = await getWalkingRoute(prevLoc.lat, prevLoc.lon, cls.lat, cls.lon);
+    const distMiles = route.distMiles;
     const walkMinutes = (distMiles / paceMph) * 60;
     const isInvalid = walkMinutes > INVALID_WALK_MINUTES;
     const classStartMin = timeStrToMinutes(cls.start);
@@ -1478,6 +1480,8 @@ function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin)
       fromLon: prevLoc.lon,
       toLat: cls.lat,
       toLon: cls.lon,
+      routePath: route.path,
+      routed: route.routed,
       distMiles,
       walkMinutes,
       departMin,
@@ -1498,11 +1502,12 @@ function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin)
     });
 
     prevLoc = { name: cls.name, lat: cls.lat, lon: cls.lon, key: clsKey };
-  });
+  }
 
   // last leg: back home after the final item
   const lastItem = todaysItems[todaysItems.length - 1];
-  const distHome = haversineMiles(prevLoc.lat, prevLoc.lon, state.home.lat, state.home.lon);
+  const homeRoute = await getWalkingRoute(prevLoc.lat, prevLoc.lon, state.home.lat, state.home.lon);
+  const distHome = homeRoute.distMiles;
   const walkHomeMinutes = (distHome / paceMph) * 60;
   const isHomeLegInvalid = walkHomeMinutes > INVALID_WALK_MINUTES;
   const departHomeMin = timeStrToMinutes(lastItem.end);
@@ -1523,6 +1528,8 @@ function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin)
     fromLon: prevLoc.lon,
     toLat: state.home.lat,
     toLon: state.home.lon,
+    routePath: homeRoute.path,
+    routed: homeRoute.routed,
     distMiles: distHome,
     walkMinutes: walkHomeMinutes,
     departMin: departHomeMin,
@@ -1546,7 +1553,7 @@ function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin)
   return { legs, totalMiles };
 }
 
-function buildSevenDayPlan(forecastByKey, paceMph, bufferMin) {
+async function buildSevenDayPlan(forecastByKey, paceMph, bufferMin) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const results = [];
@@ -1565,7 +1572,7 @@ function buildSevenDayPlan(forecastByKey, paceMph, bufferMin) {
 
     if (todaysItems.length === 0) continue;
 
-    const { legs, totalMiles } = buildDayLegs(todaysItems, dayDate, (key) => forecastByKey.get(key), paceMph, bufferMin);
+    const { legs, totalMiles } = await buildDayLegs(todaysItems, dayDate, (key) => forecastByKey.get(key), paceMph, bufferMin);
     results.push({ label: dayFmt.format(dayDate), legs, totalMiles });
   }
 
@@ -1575,7 +1582,7 @@ function buildSevenDayPlan(forecastByKey, paceMph, bufferMin) {
 // Builds a "typical week" for one calendar month using climatological averages
 // instead of a live forecast. Reuses buildDayLegs exactly as the 7-day view does —
 // only the weather data source changes.
-function buildClimatologyWeek(monthIndex0, profiles, paceMph, bufferMin) {
+async function buildClimatologyWeek(monthIndex0, profiles, paceMph, bufferMin) {
   const dayNames = { 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday' };
   // Every weekday in a given month shares the same climatological profile — weather
   // doesn't know what day of the week it is — so we just need one reference date per
@@ -1596,7 +1603,7 @@ function buildClimatologyWeek(monthIndex0, profiles, paceMph, bufferMin) {
     // Same profile for every location — one city-wide climate, not per-building.
     const getHourlyForKey = () => monthProfile;
 
-    const { legs, totalMiles } = buildDayLegs(todaysItems, refDate, getHourlyForKey, paceMph, bufferMin);
+    const { legs, totalMiles } = await buildDayLegs(todaysItems, refDate, getHourlyForKey, paceMph, bufferMin);
     results.push({ label: `${dayNames[weekday]} (typical)`, legs, totalMiles });
   }
 
@@ -1799,6 +1806,101 @@ function buildWeekSummaryChart(days) {
     </div>
   `;
 }
+// ---------- Real walking-route lookups (OSRM foot profile) ----------
+
+// OSRM's public demo server explicitly caps usage at 1 request/second
+// (see their usage policy). This queue guarantees calls never go out
+// faster than that, regardless of how many legs need routing at once.
+let osrmQueueTail = Promise.resolve();
+function queueOsrmRequest(fn) {
+  const run = () => fn().finally(() => new Promise(r => setTimeout(r, 1100)));
+  osrmQueueTail = osrmQueueTail.then(run, run);
+  return osrmQueueTail;
+}
+
+const ROUTE_CACHE_KEY = 'walkForecastRouteCache_v1';
+
+function loadRouteCache() {
+  try {
+    const raw = localStorage.getItem(ROUTE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+let routeCache = loadRouteCache();
+const sessionFailureCache = {}; // failures aren't persisted -- a fresh page load always gets a real retry
+
+function saveRouteCache() {
+  try {
+    localStorage.setItem(ROUTE_CACHE_KEY, JSON.stringify(routeCache));
+  } catch (e) {
+    // Cache is a pure optimization -- if storage is full or unavailable,
+    // routing still works, it just re-fetches next time. Not worth surfacing.
+  }
+}
+
+/** Rounds to ~1 meter precision so near-identical coordinates share a cache entry. */
+function routeCacheKey(lat1, lon1, lat2, lon2) {
+  const r = (n) => n.toFixed(5);
+  return `${r(lat1)},${r(lon1)}|${r(lat2)},${r(lon2)}`;
+}
+
+/**
+ * Gets a real walking route between two points via OSRM's foot profile:
+ * actual walkable-path distance and the path's geometry (for drawing on
+ * the map), instead of a straight line through buildings and parking lots.
+ *
+ * Always resolves -- never rejects. If OSRM is unreachable, rate-limited,
+ * or returns something unexpected, this falls back to the straight-line
+ * haversine distance with no path geometry, so a routing hiccup degrades
+ * the experience instead of breaking the forecast entirely.
+ */
+async function getWalkingRoute(lat1, lon1, lat2, lon2) {
+  const key = routeCacheKey(lat1, lon1, lat2, lon2);
+  if (routeCache[key]) return routeCache[key];
+  if (sessionFailureCache[key]) return sessionFailureCache[key];
+
+  const fallback = () => ({
+    distMiles: haversineMiles(lat1, lon1, lat2, lon2),
+    path: null,
+    routed: false,
+  });
+
+  try {
+    const result = await queueOsrmRequest(async () => {
+      const url = `https://router.project-osrm.org/route/v1/foot/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      let res;
+      try {
+        res = await fetch(url, { signal: controller.signal });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+      if (!res.ok) throw new Error(`OSRM returned ${res.status}`);
+      const data = await res.json();
+      if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
+        throw new Error('OSRM found no route');
+      }
+      const route = data.routes[0];
+      const distMiles = route.distance / 1609.344; // meters -> miles
+      // GeoJSON coordinates are [lon, lat]; Leaflet wants [lat, lon].
+      const path = route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+      return { distMiles, path, routed: true };
+    });
+    routeCache[key] = result;
+    saveRouteCache();
+    return result;
+  } catch (err) {
+    console.warn(`Walking route lookup failed (falling back to straight-line distance): ${err.message}`);
+    const result = fallback();
+    sessionFailureCache[key] = result;
+    return result;
+  }
+}
+
 // ---------- Interactive location map ----------
 
 let leafletMap = null;
@@ -1909,22 +2011,30 @@ function updateMapRoute(day, highlightLegIndex) {
   const routeLegs = day.legs.filter(l => l.fromLat != null && l.toLat != null);
   if (!routeLegs.length) return;
 
+  /** Real routed path if we have one, otherwise just the two endpoints. */
+  const pathFor = (leg) => leg.routePath && leg.routePath.length
+    ? leg.routePath
+    : [[leg.fromLat, leg.fromLon], [leg.toLat, leg.toLon]];
+
   const fullPath = [];
   routeLegs.forEach(leg => {
-    fullPath.push([leg.fromLat, leg.fromLon]);
-    fullPath.push([leg.toLat, leg.toLon]);
+    fullPath.push(...pathFor(leg));
   });
 
   // The full day's route, dimmed, for context...
   L.polyline(fullPath, { color: '#4fd1ff', weight: 3, opacity: 0.35 }).addTo(mapRouteLayer);
 
-  // ...with the currently-highlighted leg drawn bright and on top.
+  // ...with the currently-highlighted leg drawn bright and on top, following
+  // the actual walkable path (sidewalks/paths) when OSRM routing succeeded,
+  // or a straight line as an honest fallback when it didn't.
   const current = day.legs[highlightLegIndex];
   if (current && current.fromLat != null && current.toLat != null) {
-    L.polyline(
-      [[current.fromLat, current.fromLon], [current.toLat, current.toLon]],
-      { color: '#ffb454', weight: 5, opacity: 0.95 }
-    ).addTo(mapRouteLayer);
+    L.polyline(pathFor(current), {
+      color: '#ffb454',
+      weight: 5,
+      opacity: 0.95,
+      dashArray: current.routed ? null : '6 6', // dashed = approximate straight-line fallback, not a real route
+    }).addTo(mapRouteLayer);
 
     const bounds = L.latLngBounds(fullPath);
     leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });

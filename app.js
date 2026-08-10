@@ -2159,3 +2159,4 @@ function renderResults(days, emptyMessage, options = {}) {
 initFromState();
 retrainPersonalNet();
 renderPreferenceSummary();
+updateMapMarkers();

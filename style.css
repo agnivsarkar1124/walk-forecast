@@ -729,3 +729,299 @@ input:focus, select:focus, button:focus {
   padding: 3px 8px;
   border-radius: 5px;
 }
+
+/* ---------- Day story viewer ---------- */
+.story-viewer {
+  background: #0d1117;
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 18px;
+  margin-bottom: 24px;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.story-fade-out {
+  opacity: 0;
+  transform: translateX(-12px);
+}
+
+.story-fade-in {
+  animation: storyFadeIn 0.25s ease;
+}
+
+@keyframes storyFadeIn {
+  0% { opacity: 0; transform: translateX(12px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+
+.story-day-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+
+.story-day-count {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.story-stage-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.story-scene {
+  position: relative;
+  flex: 1;
+  height: 220px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.story-info {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  z-index: 2;
+  color: #fff;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+.story-time {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.story-route {
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.story-temp {
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-top: 4px;
+  opacity: 0.9;
+}
+
+.story-leg-nav {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--panel-border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.story-leg-nav:hover:not(:disabled) { background: var(--accent-dim); color: var(--accent); }
+.story-leg-nav:disabled { opacity: 0.25; cursor: default; }
+
+.story-leg-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.story-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--panel-border);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.story-dot.active {
+  background: var(--accent);
+  transform: scale(1.3);
+}
+
+.story-day-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.story-day-nav button { flex: 1; }
+
+/* ---------- Scene: clear / sunny ---------- */
+.story-scene-clear {
+  background: linear-gradient(180deg, #2a5da8, #6fb6e8);
+}
+
+.story-sun {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff6c9, #ffd75e 70%);
+  box-shadow: 0 0 40px 10px rgba(255, 215, 94, 0.6);
+  position: relative;
+  animation: sunPulse 3s ease-in-out infinite;
+}
+
+.story-sun-rays {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(rgba(255,246,201,0.35) 0deg 4deg, transparent 4deg 18deg);
+  animation: sunRotate 20s linear infinite;
+}
+
+@keyframes sunPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes sunRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Scene: rain / storm ---------- */
+.story-scene-rain, .story-scene-storm {
+  background: linear-gradient(180deg, #1c2a3a, #3b5169);
+}
+
+.story-scene-storm { background: linear-gradient(180deg, #10141c, #232f3f); }
+
+.story-drop {
+  position: absolute;
+  top: -20px;
+  width: 2px;
+  height: 22px;
+  border-radius: 1px;
+  background: linear-gradient(to bottom, rgba(180,210,255,0), rgba(180,210,255,0.9));
+  animation-name: storyFallDrop;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes storyFallDrop {
+  0% { transform: translateY(0); opacity: 0; }
+  10% { opacity: 1; }
+  100% { transform: translateY(240px); opacity: 0.2; }
+}
+
+.story-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  animation: storyLightning 3.5s infinite;
+}
+
+@keyframes storyLightning {
+  0%, 90%, 100% { opacity: 0; }
+  91% { opacity: 0.4; }
+  92% { opacity: 0; }
+  93% { opacity: 0.25; }
+  94% { opacity: 0; }
+}
+
+/* ---------- Scene: snow ---------- */
+.story-scene-snow {
+  background: linear-gradient(180deg, #3a4658, #6c7a8f);
+}
+
+.story-flake {
+  position: absolute;
+  top: -12px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.95);
+  animation-name: storyFallFlake;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes storyFallFlake {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: 0.95; }
+  100% { transform: translate(14px, 240px); opacity: 0.3; }
+}
+
+/* ---------- Scene: hot ---------- */
+.story-scene-hot {
+  background: linear-gradient(180deg, #7a2e1a, #d9722f);
+}
+
+.story-sun-hot {
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(circle, #fff0d6, #ff8a3d 75%);
+  box-shadow: 0 0 55px 16px rgba(255, 122, 61, 0.55);
+  animation: sunPulse 2s ease-in-out infinite;
+}
+
+.story-shimmer {
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255,255,255,0.05) 0px,
+    rgba(255,255,255,0.05) 2px,
+    transparent 2px,
+    transparent 6px
+  );
+  animation: shimmerWave 1.2s ease-in-out infinite;
+  mix-blend-mode: overlay;
+}
+
+@keyframes shimmerWave {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(-6px) scaleY(1.02); }
+}
+
+/* ---------- Scene: cold ---------- */
+.story-scene-cold {
+  background: linear-gradient(180deg, #223347, #4a6f8f);
+}
+
+.story-frost {
+  position: absolute;
+  top: -8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(220, 240, 255, 0.85);
+  animation-name: storyFrostDrift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+@keyframes storyFrostDrift {
+  0% { transform: translate(0, 0); opacity: 0; }
+  15% { opacity: 0.8; }
+  50% { transform: translate(10px, 110px); }
+  100% { transform: translate(-6px, 230px); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-sun, .story-sun-rays, .story-drop, .story-flash,
+  .story-flake, .story-shimmer, .story-frost {
+    animation: none;
+  }
+  .story-fade-in { animation: none; }
+}
+
+@media (max-width: 640px) {
+  .story-stage-wrap { flex-wrap: wrap; }
+  .story-leg-nav { order: 3; }
+  .story-scene { flex-basis: 100%; height: 180px; }
+}

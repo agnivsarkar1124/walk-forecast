@@ -17,6 +17,7 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  updateMapMarkers();
 }
 
 let state = loadState();
@@ -1328,6 +1329,10 @@ function buildClimatologyTimesOnly(monthIndex0, profiles) {
       return {
         from: item.name,
         to: null, // signals to renderResults this leg has no real route/distance
+        fromLat: item.lat,
+        fromLon: item.lon,
+        toLat: null,
+        toLon: null,
         distMiles: 0,
         walkMinutes: 0,
         departMin: startMin,
@@ -1469,6 +1474,10 @@ function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin)
     legs.push({
       from: prevLoc.name,
       to: cls.name,
+      fromLat: prevLoc.lat,
+      fromLon: prevLoc.lon,
+      toLat: cls.lat,
+      toLon: cls.lon,
       distMiles,
       walkMinutes,
       departMin,
@@ -1510,6 +1519,10 @@ function buildDayLegs(todaysItems, dayDate, getHourlyForKey, paceMph, bufferMin)
   legs.push({
     from: prevLoc.name,
     to: state.home.label,
+    fromLat: prevLoc.lat,
+    fromLon: prevLoc.lon,
+    toLat: state.home.lat,
+    toLon: state.home.lon,
     distMiles: distHome,
     walkMinutes: walkHomeMinutes,
     departMin: departHomeMin,
@@ -1786,6 +1799,138 @@ function buildWeekSummaryChart(days) {
     </div>
   `;
 }
+// ---------- Interactive location map ----------
+
+let leafletMap = null;
+let mapMarkersLayer = null;
+let mapRouteLayer = null;
+
+/** Creates the Leaflet map once, on first use. Safe to call repeatedly. */
+function ensureMapInitialized() {
+  if (leafletMap) return;
+  const container = document.getElementById('location-map');
+  if (!container || typeof L === 'undefined') return;
+
+  leafletMap = L.map(container, { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 19,
+  }).addTo(leafletMap);
+
+  mapMarkersLayer = L.layerGroup().addTo(leafletMap);
+  mapRouteLayer = L.layerGroup().addTo(leafletMap);
+
+  // Default view before anything is set, so the map isn't blank/broken.
+  leafletMap.setView([30.2849, -97.7341], 12);
+}
+
+/** Small colored circle markers so Home, classes, and stops are visually distinct at a glance. */
+function coloredMarker(lat, lon, color, radius = 8) {
+  return L.circleMarker([lat, lon], {
+    radius,
+    color: '#0d1117',
+    weight: 2,
+    fillColor: color,
+    fillOpacity: 0.95,
+  });
+}
+
+/**
+ * Redraws every saved location as a marker (home, classes, stops), fits the
+ * map bounds to show them all, and shows/hides the map container depending
+ * on whether there's anything to show yet.
+ */
+function updateMapMarkers() {
+  const container = document.getElementById('location-map');
+  if (!container) return;
+
+  const hasAnyLocation = !!(state.home && state.home.lat != null)
+    || state.classes.some(c => c.lat != null)
+    || state.stops.some(s => s.lat != null);
+
+  if (!hasAnyLocation) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = '';
+
+  ensureMapInitialized();
+  if (!leafletMap) return;
+
+  mapMarkersLayer.clearLayers();
+  const points = [];
+
+  if (state.home && state.home.lat != null) {
+    coloredMarker(state.home.lat, state.home.lon, '#ffb454', 9)
+      .bindPopup(`<b>${escapeHtml(state.home.label)}</b><br>Home`)
+      .addTo(mapMarkersLayer);
+    points.push([state.home.lat, state.home.lon]);
+  }
+
+  state.classes.forEach(cls => {
+    if (cls.lat == null) return;
+    coloredMarker(cls.lat, cls.lon, '#4fd1ff')
+      .bindPopup(`<b>${escapeHtml(cls.name)}</b><br>${escapeHtml(cls.address || '')}`)
+      .addTo(mapMarkersLayer);
+    points.push([cls.lat, cls.lon]);
+  });
+
+  state.stops.forEach(stop => {
+    if (stop.lat == null) return;
+    coloredMarker(stop.lat, stop.lon, '#9ed14b')
+      .bindPopup(`<b>${escapeHtml(stop.name)}</b><br>${escapeHtml(stop.address || '')}`)
+      .addTo(mapMarkersLayer);
+    points.push([stop.lat, stop.lon]);
+  });
+
+  if (points.length === 1) {
+    leafletMap.setView(points[0], 15);
+  } else if (points.length > 1) {
+    leafletMap.fitBounds(points, { padding: [30, 30] });
+  }
+
+  // The container may have been hidden (display:none) when the map was
+  // first created, which makes Leaflet compute the wrong internal size.
+  // invalidateSize() fixes that whenever the container becomes visible.
+  setTimeout(() => leafletMap.invalidateSize(), 50);
+}
+
+/**
+ * Draws (or clears) a route line on the map connecting the actual walking
+ * legs for the day currently shown in the story viewer. Called every time
+ * the story viewer's day or leg changes, so the map always reflects
+ * whichever leg you're looking at.
+ */
+function updateMapRoute(day, highlightLegIndex) {
+  if (!leafletMap || !mapRouteLayer) return;
+  mapRouteLayer.clearLayers();
+  if (!day) return;
+
+  const routeLegs = day.legs.filter(l => l.fromLat != null && l.toLat != null);
+  if (!routeLegs.length) return;
+
+  const fullPath = [];
+  routeLegs.forEach(leg => {
+    fullPath.push([leg.fromLat, leg.fromLon]);
+    fullPath.push([leg.toLat, leg.toLon]);
+  });
+
+  // The full day's route, dimmed, for context...
+  L.polyline(fullPath, { color: '#4fd1ff', weight: 3, opacity: 0.35 }).addTo(mapRouteLayer);
+
+  // ...with the currently-highlighted leg drawn bright and on top.
+  const current = day.legs[highlightLegIndex];
+  if (current && current.fromLat != null && current.toLat != null) {
+    L.polyline(
+      [[current.fromLat, current.fromLon], [current.toLat, current.toLon]],
+      { color: '#ffb454', weight: 5, opacity: 0.95 }
+    ).addTo(mapRouteLayer);
+
+    const bounds = L.latLngBounds(fullPath);
+    leafletMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+  }
+}
+
 // ---------- Day story viewer: animated, one-day-at-a-time experience ----------
 
 // Tracks which day and which leg within that day the story viewer is
@@ -1903,6 +2048,8 @@ function renderStoryViewer() {
       </div>
     </div>
   `;
+
+  updateMapRoute(day, Math.min(legIndex, legs.length - 1));
 }
 
 /** Advances/retreats the leg (time) index within the current day. */

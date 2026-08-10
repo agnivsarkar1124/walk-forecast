@@ -730,6 +730,31 @@ input:focus, select:focus, button:focus {
   border-radius: 5px;
 }
 
+/* ---------- Location map ---------- */
+.location-map {
+  display: none;
+  height: 280px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-border);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+/* Leaflet's own popup chrome uses light-mode colors by default; restyle to match the dark theme. */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip {
+  background: #0d1117;
+  color: var(--text);
+}
+
+.leaflet-popup-content {
+  font-family: var(--sans);
+  font-size: 13px;
+}
+
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--text-dim);
+}
+
 /* ---------- Day story viewer ---------- */
 .story-viewer {
   background: #0d1117;

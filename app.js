@@ -1852,7 +1852,7 @@ function updateMapMarkers() {
     container.style.display = 'none';
     return;
   }
-  container.style.display = '';
+  container.style.display = 'block';
 
   ensureMapInitialized();
   if (!leafletMap) return;
